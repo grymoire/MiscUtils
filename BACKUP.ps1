@@ -19,9 +19,24 @@
 
 # Where to look for new files to backup
 # $src = ("C:\Users\Security\Desktop\", "C:\Users\Security\Documents\", "C:\ProgramData\HP\HP WebInspect\" )
-$src = ("C:\Users\BBarnett\Desktop\", "C:\Users\BBarnett\Documents\", "C:\mybin\") 
+$src = ("C:\Users\BBarnett\Desktop\", "C:\Users\BBarnett\Documents\") 
 
 $UUID=(get-wmiobject Win32_ComputerSystemProduct).UUID 
+
+
+$cfile = "C:\Users\BBarnett\Desktop\config.txt"
+# from http://serverfault.com/questions/186030/how-to-use-a-config-file-ini-conf-with-a-powershell-script-is-it-possib
+If ((Test-Path $cfile) -eq "True") {
+    Get-Content $cfile | foreach-object -begin {$h=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $h.Add($k[0], $k[1]) } }
+    $src = $h.Get_Item("Backup").split(",")
+}
+
+Write-Host "------------------------------------------BEGIN--------------------"
+
+#Write-Host "Src:",  $src
+
+
+
 
 #We have to put all functions up in front of the main code because PowerShell doesn;t have a 2-pass parser. Reminds me of the C-Shell
 # Parse Configuration file
@@ -51,7 +66,7 @@ function ParseConfig([string]$filename) {
 #$parent = (Get-Item -Path ".\" -Verbose).FullName
 $invocation = (Get-Variable MyInvocation).Value
 $parent = Split-Path $invocation.MyCommand.Path
-$settings=$parent + "/config.txt"
+# $settings=$parent + "/config.txt"
 
 $HowFarBack=-30 # How far back do I want to backfg up. 
 $HowFarBackFull=-365 # If I ask for a full backup - how far back do I go.
@@ -60,16 +75,16 @@ $HowFarBackFull=-365 # If I ask for a full backup - how far back do I go.
  echo "This Computer is $UUID"
  echo "---"
 
- # echo "settings: $settings"
- $cfg = ParseConfig "$settings"
+# # echo "settings: $settings"
+# $cfg = ParseConfig "$settings"
  
 
 
-Get-Content $settings | Select-String -pattern $UUID -simplematch | ForEach-Object {
-    Write-Host "Line:", $_
-}
- echo "good to go?"
-exit
+#Get-Content $settings | Select-String -pattern $UUID -simplematch | ForEach-Object {
+#    Write-Host "Line:", $_
+#}
+# echo "good to go?"
+#exit
 
 $intro_message = @("This powershell script will perform a backup of a system.")
 $intro_message+="The following boxes have a special meaning:"
@@ -155,8 +170,9 @@ Function Logging ($State, $Message) {
 #Create Backupdir 
 Function Create-Backupdir {
 # Creates backup directory, and create log file inside that diectory
- 
-    VerifyDirectory($BackupDir)
+    Write-Host "Create-Backupdir is $BackupDir"
+    Write-Host "Calling VerifyDirectory174 $dir"
+    VerifyDirectory $BackupDir
     if ((Test-Path $Log) -eq $false) {
         New-Item -Path $Log -ItemType File 
         # Move-Item -Path $Log -Destination $Backupdir
@@ -170,6 +186,8 @@ Function Create-Backupdir {
 # Verify Directory exists - if it does not exist, create it
 Function VerifyDirectory($dir) {
     # See if the target dirctory exists, and if not, create it
+    Write-Host "VerifyDirectory called line 189 with $dir"
+    Write-Host "Dir is", $dir
     if ((Test-path $dir) -eq $false) {
         Write-Host "Create Backupdir $dir"
         New-Item -Path $dir -ItemType Directory | Out-Null
@@ -181,14 +199,15 @@ Function VerifyDirectory($dir) {
 
 # Make it easy to modify by creating a copy function that handles all of the errors that can occur
 Function MyCopy($file, $toDir, $to) {
+    Write-Host "MyCopy $file, $toDir, $to"
     # file = file object we are copying
-    # toDir = the destyination directory
+    # toDir = the destination directory
     # restpath - the name of the file in the destination directory
     if ($to -eq $null) {
         Write-Host "Error: file destination name has zero length"
         exit
     }
-    from=$file.fullname
+    $from=$file.fullname
     Write-host "Copy $from -> (", $toDir, ") $to"
     
     if ( $file.PSIsContainer ) { # is the file a container?
@@ -199,7 +218,18 @@ Function MyCopy($file, $toDir, $to) {
               # Skip It
           } else {
               Write-Host "I NEED to create the target directory $CopyThere"
-              MyCopy $file $CopyToDir $CopyThere
+              ##(WAS) MyCopy $file $CopyToDir $CopyThere
+
+              # temp
+              New-Item -ItemType File -Path $to -Force | Out-Null
+   	          Copy-Item  -Path $from -Destination $to -Force -ErrorAction SilentlyContinue 
+
+
+   	          # This seems to work: except I get "Copy-Item : Could not find a part of the path"
+   	          #Copy-Item  $from $to -Force -ErrorAction SilentlyContinue 
+   	          # did not work right:
+   	          #Copy-Item  $from $to -WhatIf -Force -Erro
+     	     Logging "INFO" "$from was copied to $to"
           }
 
 
@@ -209,8 +239,12 @@ Function MyCopy($file, $toDir, $to) {
    # Else - do nothing - it's not a directory 
    } else {
          # MyCopy $file $CopyToDir $CopyThere
+
+     #temp
    	 New-Item -ItemType File -Path $to -Force | Out-Null
    	 Copy-Item  -Path $from -Destination $to -Force -ErrorAction SilentlyContinue 
+
+
    	 # This seems to work: except I get "Copy-Item : Could not find a part of the path"
    	 #Copy-Item  $from $to -Force -ErrorAction SilentlyContinue 
    	 # did not work right:
@@ -232,7 +266,7 @@ Logging "INFO" "+---------------------+"
 
  
  $Curr_date = get-date
-
+ Write-Host "Calling VerifyDirectory269 $BackupDir"
  VerifyDirectory $BackupDir
 
 
@@ -262,11 +296,14 @@ $FirstTime=$true
         Logging "INFO" "+---------------------------------------------------"
         Logging "INFO" "| Looking for files to backup under $BackupFromHere"
         Logging "INFO" "+---------------------------------------------------"
+        $BackupFromHere=$BackupFromHere.Replace("`"","")
         $TopDirectory = Split-Path $BackupFromHere -leaf #Get Desktop, Document, or whatever the top directory is in the source directory
+        # May need to remove quote
         $Index=$BackupFromHere.LastIndexOf("\")
         $SplitBackup=$BackupFromHere.substring(0,$Index)
-        #Echo "Split is $SplitBackup and end is $TopDirectory, index is $Index"
+        Echo "Split is $SplitBackup and end is $TopDirectory, index is $Index"
         $NewBackup= $($BackupDir + "\" + $TopDirectory)
+        Write-Host "Calling VerifyDirectory line 302  $NewBackup"
         VerifyDirectory $NewBackup
         # Orig
         #$Files = Get-ChildItem -Path $BackupFromHere  -File -Directory -System -Hidden  -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt $compareDate }  
@@ -278,7 +315,7 @@ $FirstTime=$true
         foreach ($File in $Files) {
 
      
-            #Write-Host "File is $File"
+            Write-Host "File is $File"
 
             if ($file.Name.length -gt 0) {
             
@@ -312,6 +349,7 @@ $FirstTime=$true
                 }
                 # Else - do nothing - it's 
             } else {
+                Write-Host "MyCopy347 $file, $CopyToDir $CopyThere"
                 MyCopy $file $CopyToDir $CopyThere
             }
                 #|Out-Null 
